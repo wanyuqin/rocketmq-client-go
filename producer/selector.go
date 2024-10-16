@@ -75,8 +75,8 @@ func NewRoundRobinQueueSelector() QueueSelector {
 }
 
 func (r *roundRobinQueueSelector) Select(message *primitive.Message, queues []*primitive.MessageQueue, lastBrokerName string) *primitive.MessageQueue {
+	// 从msg中取出本次的topic
 	t := message.Topic
-
 	r.Lock()
 	defer r.Unlock()
 	if lastBrokerName != "" {
@@ -87,13 +87,17 @@ func (r *roundRobinQueueSelector) Select(message *primitive.Message, queues []*p
 				idx = &v
 				r.indexer[t] = idx
 			}
+			//更新索引
 			*idx++
+			// 获取队列的index
 			qIndex := *idx % uint32(len(queues))
+			// 优先选择上一次没有处理的broker
 			if queues[qIndex].BrokerName != lastBrokerName {
 				return queues[qIndex]
 			}
 		}
 	}
+	// 如果队列里的queue全部都发送过一遍了
 	return r.selectOneMessageQueue(t, queues)
 }
 

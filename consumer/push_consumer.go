@@ -120,8 +120,10 @@ func NewPushConsumer(opts ...Option) (*pushConsumer, error) {
 	}
 	dc.mqChanged = p.messageQueueChanged
 	if p.consumeOrderly {
+		// 顺序消费
 		p.submitToConsume = p.consumeMessageOrderly
 	} else {
+		// 并发消费
 		p.submitToConsume = p.consumeMessageConcurrently
 	}
 
@@ -162,7 +164,7 @@ func (pc *pushConsumer) Start() error {
 		if err != nil {
 			return
 		}
-
+		// 每个消费者都会额外获取一个重试topic
 		retryTopic := internal.GetRetryTopic(pc.consumerGroup)
 		pc.crCh[retryTopic] = make(chan struct{}, pc.defaultConsumer.option.ConsumeGoroutineNums)
 
@@ -1175,6 +1177,7 @@ func (pc *pushConsumer) consumeMessageConcurrently(pq *processQueue, mq *primiti
 				msgBackFailed := make([]*primitive.MessageExt, 0)
 				msgBackSucceed := make([]*primitive.MessageExt, 0)
 				if result == ConsumeSuccess {
+					// 消费成功
 					pc.stat.increaseConsumeOKTPS(pc.consumerGroup, mq.Topic, len(subMsgs))
 					msgBackSucceed = subMsgs
 				} else {

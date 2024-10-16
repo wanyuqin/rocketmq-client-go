@@ -70,6 +70,7 @@ func NewDefaultProducer(opts ...Option) (*defaultProducer, error) {
 		callbackCh: make(chan interface{}),
 		options:    defaultOpts,
 	}
+	// 创建新的或者获取一个已有的rocketmq client
 	producer.client = internal.GetOrNewRocketMQClient(defaultOpts.ClientOptions, producer.callbackCh)
 	if producer.client == nil {
 		return nil, fmt.Errorf("GetOrNewRocketMQClient faild")
@@ -84,6 +85,7 @@ func NewDefaultProducer(opts ...Option) (*defaultProducer, error) {
 func (p *defaultProducer) Start() error {
 	var err error
 	p.startOnce.Do(func() {
+		// 将producer注册到本地的client map中存储 一个group对应一个producer
 		err = p.client.RegisterProducer(p.group, p)
 		if err != nil {
 			rlog.Error("the producer group has been created, specify another one", map[string]interface{}{
@@ -110,6 +112,8 @@ func (p *defaultProducer) Shutdown() error {
 	return nil
 }
 
+// 校验producer的状态
+// 校验每条消息topic是否合法
 func (p *defaultProducer) checkMsg(msgs ...*primitive.Message) error {
 	if atomic.LoadInt32(&p.state) != int32(internal.StateRunning) {
 		return errors2.ErrNotRunning
@@ -142,16 +146,16 @@ func (p *defaultProducer) encodeBatch(msgs ...*primitive.Message) *primitive.Mes
 	batch := new(primitive.Message)
 	batch.Topic = msgs[0].Topic
 	batch.Queue = msgs[0].Queue
-	batch.Body = MarshalMessageBatch(msgs...)
-	batch.Batch = true
+	batch.Body = MarshalMessageBatch(msgs...) // 序列化消息体
+	batch.Batch = true                        // 标记为批量
 	return batch
 }
 
 func MarshalMessageBatch(msgs ...*primitive.Message) []byte {
 	buffer := bytes.NewBufferString("")
 	for _, msg := range msgs {
-		data := msg.Marshal()
-		buffer.Write(data)
+		data := msg.Marshal() // 序列化消息体
+		buffer.Write(data)    // 将每条消息的序列化结果写在一起并返回
 	}
 	return buffer.Bytes()
 }
@@ -276,15 +280,21 @@ func (p *defaultProducer) RequestAsync(ctx context.Context, timeout time.Duratio
 	return resErr
 }
 
+// 同步发送消息
 func (p *defaultProducer) SendSync(ctx context.Context, msgs ...*primitive.Message) (*primitive.SendResult, error) {
+	// 校验消息的topic是否合法
+	// 批量发送需要每个msg的topic一致
+	// producer的状态是running
 	if err := p.checkMsg(msgs...); err != nil {
 		return nil, err
 	}
-
+	// namespace不为空 每个消息的topic带上namespace
+	// namespace逻辑隔离
 	p.messagesWithNamespace(msgs...)
-
+	// 进行数据压缩 取第一个msg的topic和queue 将多个消息的body合并，封装成一个msg
 	msg := p.encodeBatch(msgs...)
 
+	// 初始化返回数据结构体，默认state的unknown
 	resp := primitive.NewSendResult()
 	if p.interceptor != nil {
 		ctx = primitive.WithMethod(ctx, primitive.SendSync)
@@ -296,9 +306,9 @@ func (p *defaultProducer) SendSync(ctx context.Context, msgs ...*primitive.Messa
 			SendResult:        resp,
 		}
 		ctx = primitive.WithProducerCtx(ctx, producerCtx)
-
 		err := p.interceptor(ctx, msg, resp, func(ctx context.Context, req, reply interface{}) error {
 			var err error
+			fmt.Printf("消息发送前\n")
 			realReq := req.(*primitive.Message)
 			realReply := reply.(*primitive.SendResult)
 			err = p.sendSync(ctx, realReq, realReply)
@@ -312,7 +322,7 @@ func (p *defaultProducer) SendSync(ctx context.Context, msgs ...*primitive.Messa
 }
 
 func (p *defaultProducer) sendSync(ctx context.Context, msg *primitive.Message, resp *primitive.SendResult) error {
-
+	//RetryTimes 默认3次
 	retryTime := 1 + p.options.RetryTimes
 
 	var (
@@ -324,24 +334,26 @@ func (p *defaultProducer) sendSync(ctx context.Context, msg *primitive.Message, 
 		producerCtx *primitive.ProducerCtx
 		ok          bool
 	)
+	// 重试发送
 	for retryCount := 0; retryCount < retryTime; retryCount++ {
 		var lastBrokerName string
 		if mq != nil {
 			lastBrokerName = mq.BrokerName
 		}
+		// 选择出一个需要发送的queue
 		mq = p.selectMessageQueue(msg, lastBrokerName)
 		if mq == nil {
 			err = fmt.Errorf("the topic=%s route info not found", msg.Topic)
 			continue
 		}
-
+		//
 		if lastBrokerName != "" {
 			rlog.Warning("start retrying to send, ", map[string]interface{}{
 				"lastBroker": lastBrokerName,
 				"newBroker":  mq.BrokerName,
 			})
 		}
-
+		// 从namesrv中获取broker地址
 		addr := p.client.GetNameSrv().FindBrokerAddrByName(mq.BrokerName)
 		if addr == "" {
 			return fmt.Errorf("topic=%s route info not found", mq.Topic)
@@ -355,16 +367,17 @@ func (p *defaultProducer) sendSync(ctx context.Context, msg *primitive.Message, 
 			producerCtx.BrokerAddr = addr
 			producerCtx.MQ = *mq
 		}
-
+		// 拿到响应结果
 		res, _err := p.client.InvokeSync(ctx, addr, p.buildSendRequest(mq, msg), p.options.SendMsgTimeout)
 		if _err != nil {
 			err = _err
 			continue
 		}
-
+		// 是否需要重试
 		if needRetryCode(res.Code) && retryCount < retryTime-1 {
 			continue
 		}
+		// 处理响应
 		return p.client.ProcessSendResponse(mq.BrokerName, res, resp, msg)
 	}
 	return err
@@ -494,6 +507,7 @@ func (p *defaultProducer) tryCompressMsg(msg *primitive.Message) bool {
 	if msg.Batch {
 		return false
 	}
+	// 判断body的长度和压缩阈值做对比
 	if len(msg.Body) < p.options.CompressMsgBodyOverHowmuch {
 		return false
 	}
@@ -508,6 +522,7 @@ func (p *defaultProducer) tryCompressMsg(msg *primitive.Message) bool {
 
 func (p *defaultProducer) buildSendRequest(mq *primitive.MessageQueue,
 	msg *primitive.Message) *remote.RemotingCommand {
+	// 如果不是批量发送的话，需要给msg带上一个唯一的msgId
 	if !msg.Batch && msg.GetProperty(primitive.PropertyUniqueClientMessageIdKeyIndex) == "" {
 		msg.WithProperty(primitive.PropertyUniqueClientMessageIdKeyIndex, primitive.CreateUniqID())
 	}
@@ -517,6 +532,8 @@ func (p *defaultProducer) buildSendRequest(mq *primitive.MessageQueue,
 		transferBody = msg.Body
 	)
 
+	// 尝试压缩消息 批量发送不压缩
+	// 会根据消息的大小和配置的CompressMsgBodyOverHowmuch进行比较是否需要进行消息压缩（默认4kb）
 	if p.tryCompressMsg(msg) {
 		transferBody = msg.CompressedBody
 		sysFlag = primitive.SetCompressedFlag(sysFlag)
@@ -552,7 +569,9 @@ func (p *defaultProducer) buildSendRequest(mq *primitive.MessageQueue,
 
 	cmd := internal.ReqSendMessage
 	if msg.Batch {
+		// 这里会根据是否批量替换出RemotingCommand的code
 		cmd = internal.ReqSendBatchMessage
+		// 替换请求头，因为v2版本的请求头encode方法不一样
 		reqv2 := &internal.SendMessageRequestV2Header{SendMessageRequestHeader: req}
 		return remote.NewRemotingCommand(cmd, reqv2, transferBody)
 	}
@@ -563,6 +582,7 @@ func (p *defaultProducer) buildSendRequest(mq *primitive.MessageQueue,
 func (p *defaultProducer) tryToFindTopicPublishInfo(topic string) *internal.TopicPublishInfo {
 	v, exist := p.publishInfo.Load(topic)
 	if !exist {
+		// 路由信息
 		data, changed, err := p.client.GetNameSrv().UpdateTopicRouteInfo(topic)
 		if err != nil && primitive.IsRemotingErr(err) {
 			return nil
@@ -602,6 +622,9 @@ func (p *defaultProducer) selectMessageQueue(msg *primitive.Message, lastBrokerN
 		})
 		return nil
 	}
+	// 选择一个需要发送的queue
+	// queue是被封装在broker里面的
+	// 默认的select是轮询
 	return p.options.Selector.Select(msg, result.MqList, lastBrokerName)
 }
 

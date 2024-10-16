@@ -40,19 +40,21 @@ func main() {
 		os.Exit(1)
 	}
 	topic := "test"
-
+	msgs := make([]*primitive.Message, 0)
 	for i := 0; i < 10; i++ {
 		msg := &primitive.Message{
 			Topic: topic,
-			Body:  []byte("Hello RocketMQ Go Client! " + strconv.Itoa(i)),
+			Body:  []byte("Hello RocketMQ Go Client! 批量发送 " + strconv.Itoa(i)),
 		}
-		res, err := p.SendSync(context.Background(), msg)
+		msgs = append(msgs, msg)
 
-		if err != nil {
-			fmt.Printf("send message error: %s\n", err)
-		} else {
-			fmt.Printf("send message success: result=%s\n", res.String())
-		}
+	}
+	res, err := p.SendSync(context.Background(), msgs...)
+
+	if err != nil {
+		fmt.Printf("send message error: %s\n", err)
+	} else {
+		fmt.Printf("send message success: result=%s\n", res.String())
 	}
 	err = p.Shutdown()
 	if err != nil {

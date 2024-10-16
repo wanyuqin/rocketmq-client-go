@@ -60,18 +60,21 @@ func WriteToFile(path string, data []byte) error {
 	if err := ensureDir(filepath.Dir(path)); err != nil {
 		return err
 	}
+	// 创建一个临时文件
 	tmpFile, err := os.Create(path + ".tmp")
 	if err != nil {
 		return err
 	}
+	// 将数据写入临时文件
 	_, err = tmpFile.Write(data)
 	if err != nil {
 		return err
 	}
 	CheckError(fmt.Sprintf("close %s", tmpFile.Name()), tmpFile.Close())
-
+	// 读取出原来的文件中的内容
 	prevContent, err := FileReadAll(path)
 	if err == nil {
+		// 原来的文件进行备份
 		bakFile, err := os.Create(path + ".bak")
 		if err != nil {
 			_, err = bakFile.Write(prevContent)

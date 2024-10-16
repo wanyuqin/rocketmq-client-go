@@ -39,15 +39,18 @@ func main() {
 		fmt.Printf("start producer error: %s", err.Error())
 		os.Exit(1)
 	}
+	ctx := context.Background()
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		err := p.SendAsync(context.Background(),
+		err := p.SendAsync(ctx,
 			func(ctx context.Context, result *primitive.SendResult, e error) {
+				fmt.Printf("%v callback ctx info \n", ctx.Err())
 				if e != nil {
 					fmt.Printf("receive message error: %s\n", err)
 				} else {
-					fmt.Printf("send message success: result=%s\n", result.String())
+					//fmt.Printf("send message success: result=%s\n", result.String())
+					fmt.Println("callback done")
 				}
 				wg.Done()
 			}, primitive.NewMessage("test", []byte("Hello RocketMQ Go Client!")))
@@ -58,6 +61,7 @@ func main() {
 	}
 	wg.Wait()
 	err = p.Shutdown()
+	fmt.Printf("%v total end \n", ctx.Err())
 	if err != nil {
 		fmt.Printf("shutdown producer error: %s", err.Error())
 	}

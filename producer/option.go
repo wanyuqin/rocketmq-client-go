@@ -48,8 +48,8 @@ type producerOptions struct {
 	CreateTopicKey        string // "TBW102" Will be created at broker when isAutoCreateTopicEnable. when topic is not created,
 	// and broker open isAutoCreateTopicEnable, topic will use "TBW102" config to create topic
 	Resolver                   primitive.NsResolver
-	CompressMsgBodyOverHowmuch int
-	CompressLevel              int
+	CompressMsgBodyOverHowmuch int // 需要压缩的消息body阈值 默认4k 4096
+	CompressLevel              int // 压缩等级 默认 5
 	TraceDispatcher            internal.TraceDispatcher
 }
 

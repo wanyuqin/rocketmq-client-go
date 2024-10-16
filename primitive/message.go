@@ -71,11 +71,11 @@ const (
 
 type Message struct {
 	Topic          string
-	Body           []byte
-	CompressedBody []byte
-	Flag           int32
-	TransactionId  string
-	Batch          bool
+	Body           []byte // 消息体
+	CompressedBody []byte // 压缩后消息体
+	Flag           int32  //
+	TransactionId  string // 事务ID
+	Batch          bool   // 标记是否消息是否是批量
 	Compress       bool
 	// Queue is the queue that messages will be sent to. the value must be set if want to custom the queue of message,
 	// just ignore if not.

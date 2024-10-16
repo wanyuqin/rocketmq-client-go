@@ -463,7 +463,7 @@ func (c *rmqClient) Start() {
 				}
 			}
 		})
-
+		// 心跳每一秒会发送
 		go primitive.WithRecover(func() {
 			op := func() {
 				c.GetNameSrv().cleanOfflineBroker()
@@ -889,6 +889,7 @@ func (c *rmqClient) UpdatePublishInfo(topic string, data *TopicRouteData, change
 	c.producerMap.Range(func(key, value interface{}) bool {
 		p := value.(InnerProducer)
 		updated := changed
+		// 是否需要更新 本地的topic信息
 		if !updated {
 			updated = p.IsPublishTopicNeedUpdate(topic)
 		}

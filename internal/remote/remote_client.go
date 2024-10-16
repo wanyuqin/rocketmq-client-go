@@ -98,7 +98,7 @@ func (c *remotingClient) InvokeSync(ctx context.Context, addr string, request *R
 	}
 
 	resp := NewResponseFuture(ctx, request.Opaque, nil)
-
+	// 可以根据Opaque 找到 对应的响应
 	c.responseTable.Store(resp.Opaque, resp)
 	defer c.responseTable.Delete(request.Opaque)
 
@@ -164,6 +164,7 @@ func (c *remotingClient) connect(ctx context.Context, addr string) (*tcpConnWrap
 	}
 	c.connectionTable.Store(addr, tcpConn)
 	go primitive.WithRecover(func() {
+		// 这里监听response
 		c.receiveResponse(tcpConn)
 	})
 	return tcpConn, nil
@@ -201,7 +202,7 @@ func (c *remotingClient) receiveResponse(r *tcpConnWrapper) {
 			r.destroy()
 			break
 		}
-
+		// 设置读超时
 		err = r.Conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
 		if err != nil {
 			continue
@@ -238,13 +239,16 @@ func (c *remotingClient) receiveResponse(r *tcpConnWrapper) {
 
 func (c *remotingClient) processCMD(cmd *RemotingCommand, r *tcpConnWrapper) {
 	if cmd.isResponseType() {
+		// 处理响应
 		resp, exist := c.responseTable.Load(cmd.Opaque)
 		if exist {
+			// 如果请求对应的标识的resp存在 先把他从map中删除
 			c.responseTable.Delete(cmd.Opaque)
 			responseFuture := resp.(*ResponseFuture)
 			go primitive.WithRecover(func() {
 				responseFuture.ResponseCommand = cmd
 				if responseFuture.Done != nil {
+					// 这里就是关闭channel 说明收到了响应
 					close(responseFuture.Done)
 				}
 				responseFuture.executeInvokeCallback()
@@ -331,6 +335,7 @@ func (c *remotingClient) doRequest(ctx context.Context, conn *tcpConnWrapper, re
 	if !ok {
 		deadline = time.Now().Add(c.config.WriteTimeout)
 	}
+	// 出现错误就把链接关闭
 	err := conn.Conn.SetWriteDeadline(deadline)
 	if err != nil {
 		rlog.Error("conn error, close connection", map[string]interface{}{

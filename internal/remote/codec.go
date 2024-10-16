@@ -74,15 +74,16 @@ func (lc LanguageCode) String() string {
 	}
 }
 
+// RemotingCommand 用于通信协议的数据结构，主要用于客户端和服务端之间的消息传递和指令交互
 type RemotingCommand struct {
-	Code      int16             `json:"code"`
-	Language  LanguageCode      `json:"language"`
-	Version   int16             `json:"version"`
-	Opaque    int32             `json:"opaque"`
-	Flag      int32             `json:"flag"`
-	Remark    string            `json:"remark"`
-	ExtFields map[string]string `json:"extFields"`
-	Body      []byte            `json:"-"`
+	Code      int16             `json:"code"`      // 是一个整型数值，表示远程命令的类型或请求的操作码。不同的 code 代表不同的操作，比如消息发送、消息拉取、心跳等。它用于区分不同类型的命令。
+	Language  LanguageCode      `json:"language"`  // 是一个枚举类型，表示请求的客户端语言。RocketMQ 支持多种客户端语言（如 Java、Go、等），这个字段帮助服务端识别客户端的语言类型，以确保通信的兼容性
+	Version   int16             `json:"version"`   // 表示协议的版本号。这用于保证客户端和服务端之间的协议兼容性，不同版本的协议可能有不同的字段或处理逻辑
+	Opaque    int32             `json:"opaque"`    // 是一个唯一标记符，用于标识一条请求消息。客户端发送请求时会生成一个opaque值，服务端在响应时会带上相同的值，以便客户端能够将响应与请求一一对应。这相当于一个请求的标识 ID。
+	Flag      int32             `json:"flag"`      // 是一个标志位，表示请求的额外状态或控制信息。它通常用作一些特殊功能的开关或标志，比如是否需要压缩、加密等
+	Remark    string            `json:"remark"`    // 是一个备注字段，用于存储附加的描述信息，通常在出错或特殊情况下，返回额外的提示或错误信息。
+	ExtFields map[string]string `json:"extFields"` // 是一个扩展字段的键值对映射。这个字段用于传递额外的业务或控制信息，键是字符串，值也是字符串。这部分信息是可扩展的，具体内容根据不同的业务需求而定
+	Body      []byte            `json:"-"`         // 消息的实际数据，通常是二进制形式的负载。这个字段可能会包含需要传输的核心业务数据，比如消息内容或其他序列化的数据
 }
 
 type CustomHeader interface {
